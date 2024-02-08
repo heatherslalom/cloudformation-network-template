@@ -1,0 +1,278 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: 
+
+Resources:
+  VPC:
+    name: Security
+    region: us-gov-west
+    cidrs:
+      - 10.0.0.0/16
+    internetGateway: true
+    enableDnsHostnames: true
+    enableDnsSupport: true
+    instanceTenancy: default
+    routeTables:
+      - name: Internet_facing_route table
+        routes:
+          - name: TgwRoute
+            destination: 10.0.0.0/8
+            type: transitGateway
+            target: Network-Main
+          - name: IgwRoute
+            destination: 0.0.0.0/0
+            type: internetGateway
+            target: IGW
+      - name: Network-Boundary-Untrust-Rt-B
+        routes:
+          - name: TgwRoute
+            destination: 10.0.0.0/8
+            type: transitGateway
+            target: Network-Main
+          - name: IgwRoute
+            destination: 0.0.0.0/0
+            type: internetGateway
+            target: IGW
+      - name: Network-Boundary-Trust-Rt-A
+      - name: Network-Boundary-Trust-Rt-B
+      - name: Network-Boundary-Management-Rt-A
+        routes:
+          - name: IgwRoute
+            destination: 0.0.0.0/0
+            type: internetGateway
+            target: IGW
+      - name: Network-Boundary-Management-Rt-B
+        routes:
+          - name: IgwRoute
+            destination: 0.0.0.0/0
+            type: internetGateway
+            target: IGW
+      - name: Network-Boundary-TgwAttach-Rt-A
+        routes:
+          - name: NatRoute
+            destination: 0.0.0.0/0
+            type: natGateway
+            target: Network-Boundary-NatGw-A
+      - name: Network-Boundary-TgwAttach-Rt-B
+        routes:
+          - name: NatRoute
+            destination: 0.0.0.0/0
+            type: natGateway
+            target: Network-Boundary-NatGw-B
+    subnets:
+      - name:security-subnet-private1-us-gov-west-1a
+        availabilityZone: a
+        routeTable: Network-Boundary-Untrust-Rt-A
+        ipv4CidrBlock: 10.0.0.0/24
+      - name: security-subnet-private2-us-gov-west-1b
+        availabilityZone: b
+        routeTable: Network-Boundary-Untrust-Rt-B
+        ipv4CidrBlock: 10.0.1.0/24
+      - name: security-subnet-private3-us-gov-west-1c
+        availabilityZone: c
+        routeTable: Network-Boundary-Trust-Rt-A
+        ipv4CidrBlock: 10.0.2.0/24
+      - name: security-subnet-public1-us-gov-west-1a
+        availabilityZone: a
+        routeTable: Network-Boundary-Trust-Rt-B
+        ipv4CidrBlock: 10.0.3.0/24
+      - name: security-subnet-public2-us-gov-west-1b
+        availabilityZone: b
+        routeTable: Network-Boundary-Management-Rt-A
+        ipv4CidrBlock: 10.0.4.0/24
+      - name: security-subnet-public3-us-gov-west-1c
+        availabilityZone: c
+        routeTable: Network-Boundary-Management-Rt-B
+        ipv4CidrBlock: 10.0.5.0/24
+    natGateways:
+      - name: Network-Boundary-NatGw-A
+        subnet: Network-Boundary-Untrust-A
+      - name: Network-Boundary-NatGw-B
+        subnet: Network-Boundary-Untrust-B
+    transitGatewayAttachments:
+      - name: Network-Boundary
+        transitGateway:
+          name: Network-Main
+          account: Network
+        routeTableAssociations:
+          - Network-Main-Network-Boundary
+        routeTablePropagations:
+          - Network-Main-Internal
+          - Network-Main-SharedServices-Main
+        subnets:
+          - Network-Boundary-TgwAttach-A
+          - Network-Boundary-TgwAttach-B
+# Shared Services Account
+  # SharedServices-Main VPC
+  # This vpc creates 3 subnets in each AZs
+  # Subnets includes app, data and tgw attach.
+  ### This vpc host sharedsevices applications.
+  - name: SharedServices
+    region: us-gov-west
+    cidrs:
+      - 10.1.0.0/20
+    internetGateway: false
+    enableDnsHostnames: true
+    enableDnsSupport: true
+    instanceTenancy: default
+    routeTables:
+      - name: SharedServices-Main-App-Rt-A
+        routes:
+          - name: TgwRoute
+            destination: 0.0.0.0/0
+            type: transitGateway
+            target: Network-Main
+      - name: SharedServices-Main-App-Rt-B
+        routes:
+          - name: TgwRoute
+            destination: 0.0.0.0/0
+            type: transitGateway
+            target: Network-Main
+      - name: SharedServices-Main-Database-Rt-A
+      - name: SharedServices-Main-Database-Rt-B
+      - name: SharedServices-Main-TgwAttach-Rt-A
+      - name: SharedServices-Main-TgwAttach-Rt-B
+    subnets:
+      - name: sharedservices-subnet-private1-us-gov-west-1a
+        availabilityZone: a
+        routeTable: SharedServices-Main-App-Rt-A
+        ipv4CidrBlock: 10.1.0.0/24
+      - name: sharedservices-subnet-private2-us-gov-west-1b
+        availabilityZone: b
+        routeTable: SharedServices-Main-App-Rt-B
+        ipv4CidrBlock: 10.1.1.0/24
+      - name: sharedservices-subnet-private3-us-gov-west-1c
+        availabilityZone: c
+        routeTable: SharedServices-Main-Database-Rt-A
+        ipv4CidrBlock: 10.1.2.0/24
+      - name: sharedservices-subnet-public1-us-gov-west-1a
+        availabilityZone: a
+        routeTable: SharedServices-Main-Database-Rt-B
+        ipv4CidrBlock: 10.1.3.0/24
+      - name: sharedservices-subnet-public2-us-gov-west-1b
+        availabilityZone: b
+        routeTable: SharedServices-Main-TgwAttach-Rt-A
+        ipv4CidrBlock: 10.1.4.0/24
+      - name: sharedservices-subnet-public3-us-gov-west-1c
+        availabilityZone: c
+        routeTable: SharedServices-Main-TgwAttach-Rt-B
+        ipv4CidrBlock: 10.1.5.0/24
+    transitGatewayAttachments:
+      - name: SharedServices-Main
+        transitGateway:
+          name: Network-Main
+          account: Network
+        routeTableAssociations:
+          - Network-Main-SharedServices-Main
+        routeTablePropagations:
+          - Network-Main-Internal
+          - Network-Main-Network-Boundary
+        subnets:
+          - SharedServices-Main-TgwAttach-A
+          - SharedServices-Main-TgwAttach-B
+# App VPC
+  # This vpc creates 3 subnets in each AZs
+  - name: App
+    region: us-gov-west
+    cidrs:
+      - 10.5.0.0/16
+    internetGateway: false
+    enableDnsHostnames: true
+    enableDnsSupport: true
+    instanceTenancy: default
+    routeTables:
+      - name: App-Main-App-Rt-A
+        routes:
+          - name: TgwRoute
+            destination: 0.0.0.0/0
+            type: transitGateway
+            target: Network-Main
+      - name: App-Main-App-Rt-B
+        routes:
+          - name: TgwRoute
+            destination: 0.0.0.0/0
+            type: transitGateway
+            target: Network-Main
+      - name: App-Main-Database-Rt-A
+      - name: App-Main-Database-Rt-B
+      - name: App-Main-TgwAttach-Rt-A
+      - name: App-Main-TgwAttach-Rt-B
+    subnets:
+      - name: app-subnet-private1-us-gov-west-1a
+        availabilityZone: a
+        routeTable: App-Main-App-Rt-A
+        ipv4CidrBlock: 10.5.0.0/24
+      - name: app-subnet-private2-us-gov-west-1b
+        availabilityZone: b
+        routeTable: App-Main-App-Rt-B
+        ipv4CidrBlock: 10.5.1.0/24
+      - name: app-subnet-private3-us-gov-west-1c
+        availabilityZone: c
+        routeTable: App-Main-Database-Rt-A
+        ipv4CidrBlock: 10.5.2.0/24
+      - name: app-subnet-public1-us-gov-west-1a
+        availabilityZone: a
+        routeTable: App-Main-Database-Rt-B
+        ipv4CidrBlock: 10.5.3.0/24
+      - name: app-subnet-public2-us-gov-west-1b
+        availabilityZone: b 
+        routeTable: App-Main-TgwAttach-Rt-A
+        ipv4CidrBlock: 10.5.4.0/24
+      - name: app-subnet-public3-us-gov-west-1c
+        availabilityZone: c
+        routeTable: App-Main-TgwAttach-Rt-B
+        ipv4CidrBlock: 10.5.5.0/24
+    transitGatewayAttachments:
+      - name: App-Main
+        transitGateway:
+          name: Network-Main
+          account: Network
+        routeTableAssociations:
+          - Network-Main-App-Main
+        routeTablePropagations:
+          - Network-Main-Internal
+          - Network-Main-Network-Boundary
+        subnets:
+          - App-Main-TgwAttach-A
+          - App-Main-TgwAttach-B
+
+##############################################################
+# Global configuration for VPC flow logs                     #
+ ##############################################################
+vpcFlowLogs:
+  trafficType: ALL
+  maxAggregationInterval: 600
+  destinations:
+    - cloud-watch-logs
+  destinationsConfig:
+    cloudWatchLogs:
+      retentionInDays: 30
+  defaultFormat: false
+  customFields:
+    - version
+    - account-id
+    - interface-id
+    - srcaddr
+    - dstaddr
+    - srcport
+    - dstport
+    - protocol
+    - packets
+    - bytes
+    - start
+    - end
+    - action
+    - log-status
+    - vpc-id
+    - subnet-id
+    - instance-id
+    - tcp-flags
+    - type
+    - pkt-srcaddr
+    - pkt-dstaddr
+    - region
+    - az-id
+    - pkt-src-aws-service
+    - pkt-dst-aws-service
+    - flow-direction
+    - traffic-path
+

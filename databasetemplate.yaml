@@ -1,0 +1,200 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+
+Description:
+
+Parameters:
+
+   DatabasePassword:
+    NoEcho: true
+    Type: String
+    Description: Database admin account password
+    MinLength: 6
+    MaxLength: 41
+    AllowedPattern: "[a-zA-Z0-9]*"
+    ConstraintDescription: Password must contain only alphanumeric characters
+
+Resources:
+
+  EnhancedMonitoringRole:
+    Type: AWS::IAM::Role
+    Condition: EnhancedMonitoringSupprtedAndEnabled
+    Properties:
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: monitoring.rds.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole
+
+  DatabaseAlarmTopic:
+    Type: AWS::SNS::Topic
+    Condition: AlarmsEnabled
+    Properties:
+      DisplayName: Database Alarm Topic
+
+  DatabaseSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Database subnet group
+      SubnetIds:
+        - app-subnet-private1-us-gov-west-1a
+        - app-subnet-private1-us-gov-west-1b
+      
+     
+
+  AuroraCluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      Engine: aurora-postgres
+      MasterUsername: Admin
+      MasterUserPassword: !Ref DatabasePassword
+      DBSubnetGroupName: !Ref DatabaseSubnetGroup
+      StorageEncrypted: true
+      KmsKeyID: 
+      DatabaseName: PartsDB
+      VpcSecurityGroupIds:
+        - Fn::ImportValue: !Sub ${NetworkStackName}-DatabaseGroupID
+
+  AuroraInstance0:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      Engine: aurora-postgres
+      DBClusterIdentifier: AuroraCluster
+      DBInstanceClass: 
+      DBSubnetGroupName: 
+      StorageEncrypted: true
+      MonitoringInterval: 
+      MonitoringRoleArn: 
+    DependsOn: AuroraCluster
+
+  AuroraInstance1:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      Engine: aurora-postgres
+      DBClusterIdentifier: AuroraCluster
+      DBInstanceClass: 
+      DBSubnetGroupName: 
+      StorageEncrypted: true
+      MonitoringInterval: 
+      MonitoringRoleArn: 
+    DependsOn: AuroraCluster
+
+  DatabaseCpuAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: AlarmsEnabled
+    Properties:
+      AlarmDescription: !Sub DB CPU utilization is over ${DatabaseAlarmMaxCpuPercent}% for ${DatabaseAlarmEvaluationPeriods} period(s) of ${DatabaseAlarmEvaluationPeriodSeconds} seconds
+      TreatMissingData: notBreaching
+      Namespace: AWS/RDS
+      MetricName: CPUUtilization
+      Unit: Percent
+      Statistic: Average
+      EvaluationPeriods: !Ref DatabaseAlarmEvaluationPeriods
+      Period: !Ref DatabaseAlarmEvaluationPeriodSeconds
+      Threshold: !Ref DatabaseAlarmMaxCpuPercent
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: DBClusterIdentifier
+          Value: !Ref AuroraCluster
+        - Name: Role
+          Value: WRITER
+      AlarmActions:
+        - !Ref DatabaseAlarmTopic
+    DependsOn: AuroraCluster
+
+  DatabaseSelectLatencyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: AlarmsEnabled
+    Properties:
+      AlarmDescription: !Sub DB read latency is over ${DatabaseAlarmReadLatencyMaxSeconds} for ${DatabaseAlarmEvaluationPeriods} period(s) of ${DatabaseAlarmEvaluationPeriodSeconds} seconds
+      TreatMissingData: notBreaching
+      Namespace: AWS/RDS
+      MetricName: SelectLatency
+      Unit: Seconds
+      Statistic: Average
+      EvaluationPeriods: !Ref DatabaseAlarmEvaluationPeriods
+      Period: !Ref DatabaseAlarmEvaluationPeriodSeconds
+      Threshold: !Ref DatabaseAlarmReadLatencyMaxSeconds
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: DBClusterIdentifier
+          Value: !Ref AuroraCluster
+        - Name: Role
+          Value: WRITER
+      AlarmActions:
+        - !Ref DatabaseAlarmTopic
+    DependsOn: AuroraCluster
+
+  DatabaseInsertLatencyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: AlarmsEnabled
+    Properties:
+      AlarmDescription: !Sub DB insert latency is over ${DatabaseAlarmWriteLatencyMaxSeconds} for ${DatabaseAlarmEvaluationPeriods} period(s) of ${DatabaseAlarmEvaluationPeriodSeconds} seconds
+      TreatMissingData: notBreaching
+      Namespace: AWS/RDS
+      MetricName: InsertLatency
+      Unit: Seconds
+      Statistic: Average
+      EvaluationPeriods: !Ref DatabaseAlarmEvaluationPeriods
+      Period: !Ref DatabaseAlarmEvaluationPeriodSeconds
+      Threshold: !Ref DatabaseAlarmWriteLatencyMaxSeconds
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: DBClusterIdentifier
+          Value: !Ref AuroraCluster
+        - Name: Role
+          Value: WRITER
+      AlarmActions:
+        - !Ref DatabaseAlarmTopic
+    DependsOn: AuroraCluster
+
+  DatabaseUpdateLatencyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: AlarmsEnabled
+    Properties:
+      AlarmDescription: !Sub DB update latency is over ${DatabaseAlarmWriteLatencyMaxSeconds} for ${DatabaseAlarmEvaluationPeriods} period(s) of ${DatabaseAlarmEvaluationPeriodSeconds} seconds
+      TreatMissingData: notBreaching
+      Namespace: AWS/RDS
+      MetricName: UpdateLatency
+      Unit: Seconds
+      Statistic: Average
+      EvaluationPeriods: !Ref DatabaseAlarmEvaluationPeriods
+      Period: !Ref DatabaseAlarmEvaluationPeriodSeconds
+      Threshold: !Ref DatabaseAlarmWriteLatencyMaxSeconds
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: DBClusterIdentifier
+          Value: !Ref AuroraCluster
+        - Name: Role
+          Value: WRITER
+      AlarmActions:
+        - !Ref DatabaseAlarmTopic
+    DependsOn: AuroraCluster
+
+  DatabaseDeleteLatencyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: AlarmsEnabled
+    Properties:
+      AlarmDescription: !Sub DB update latency is over ${DatabaseAlarmWriteLatencyMaxSeconds} for ${DatabaseAlarmEvaluationPeriods} period(s) of ${DatabaseAlarmEvaluationPeriodSeconds} seconds
+      TreatMissingData: notBreaching
+      Namespace: AWS/RDS
+      MetricName: DeleteLatency
+      Unit: Seconds
+      Statistic: Average
+      EvaluationPeriods: !Ref DatabaseAlarmEvaluationPeriods
+      Period: !Ref DatabaseAlarmEvaluationPeriodSeconds
+      Threshold: !Ref DatabaseAlarmWriteLatencyMaxSeconds
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: DBClusterIdentifier
+          Value: !Ref AuroraCluster
+        - Name: Role
+          Value: WRITER
+      AlarmActions:
+        - !Ref DatabaseAlarmTopic
+    DependsOn: AuroraCluster

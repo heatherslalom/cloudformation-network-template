@@ -1,0 +1,171 @@
+ ##################################################################################################################
+  # AWS Security Hub Configurations                                                                                #
+  ##################################################################################################################
+  securityHub:
+    enable: true
+    regionAggregation: true
+    excludeRegions: []
+    standards:
+      #############################################################################################################
+      # Enable AWS Security Hub standards based upon a customer specific requirements                             #
+      # For the standard configuration, we have enabled the following standards:                                          #
+      # - AWS Foundational Security Best Practices (FSBP)                                                         #
+      # - Center for Internet Security (CIS) AWS Foundations Benchmark v1.4.0                                     #
+      # - National Institute of Standards and Technology (NIST) SP 800-53 Rev. 5                                  #                                                                                                       #
+      # Controls that you might want to disable based upon Security Hub recommendation                            #
+      # https://docs.aws.amazon.com/securityhub/latest/userguide/controls-to-disable.html                         #
+      #############################################################################################################
+      - name: AWS Foundational Security Best Practices v1.0.0
+        # https://docs.aws.amazon.com/securityhub/latest/userguide/fsbp-standard.html
+        enable: true
+      - name: CIS AWS Foundations Benchmark v1.4.0
+        # https://docs.aws.amazon.com/securityhub/latest/userguide/cis-aws-foundations-benchmark.html#cis1v4-standard
+        enable: true
+      - name: NIST Special Publication 800-53 Revision 5
+        # https://docs.aws.amazon.com/securityhub/latest/userguide/nist-standard.html
+        enable: true
+  ssmAutomation:
+    excludeRegions: []
+    documentSets: []
+accessAnalyzer:
+  enable: true
+iamPasswordPolicy:
+  allowUsersToChangePassword: true
+  hardExpiry: false
+  requireUppercaseCharacters: true
+  requireLowercaseCharacters: true
+  requireSymbols: true
+  requireNumbers: true
+  ############################################################################################
+  # The minimum password length was chosen to be 14 to align with common industry practices. #
+  # If you need to comply with NIST SP 800-63B you can modify the password length to 8.      #
+  ############################################################################################
+  minimumPasswordLength: 14
+  passwordReusePrevention: 24
+  maxPasswordAge: 90
+  
+  # AWS Config
+  EnableAllRegions:
+    Type: String
+    Description: "AWS recommends only changing this option to speed up the configuration of POC or demo environments. This setting controls the regions that will be monitored by Amazon GuardDuty, AWS Config/Rules, and security notifications. Monitoring in all AWS regions is highly recommended."
+    Default: 'All regions'
+    AllowedValues:
+    - 'All regions'
+    - 'Current region only'
+
+Parameters:
+
+  ResourceName:
+    Type: String
+    Default: GuardDuty-SFO-Loft-Lab1
+    AllowedValues: 
+      - GuardDuty-SFO-Loft-Lab1
+    Description: Name of Resources created for this lab.
+
+  EmailAddress:
+    Description: Email Address for sending SNS notifications for GuardDuty Events
+    Type: String
+  
+
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: must be the name of an existing EC2 KeyPair.
+
+Mappings:
+  RegionMap:
+    us-west-2:
+      CommonVul: arn:aws:inspector:us-west-2:758058086616:rulespackage/0-9hgA516p
+      CIS: arn:aws:inspector:us-west-2:758058086616:rulespackage/0-H5hpSawc
+      SecurityBest: arn:aws:inspector:us-west-2:758058086616:rulespackage/0-JJOtZiqQ
+
+Resources:
+  
+  GuardDutyEventCFN: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Description: EventRule
+      EventPattern: 
+        source:
+        - aws.guardduty
+        detail:
+          type:
+          - UnauthorizedAccess:EC2/MaliciousIPCaller.Custom
+      State: ENABLED
+      Targets: 
+        - 
+          Arn: !Ref GuardDutySNSTopic
+          Id: GuardDutySNSTopic
+          InputTransformer:
+            InputTemplate: '"The EC2 instance <instanceid> may be compromised and should be investigated. Go to https://us-west-2.console.aws.amazon.com/guardduty/home?region=us-west-2#/findings"'
+            InputPathsMap:
+              instanceid: $.detail.resource.instanceDetails.instanceId 
+
+  GuardDutySNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+      - 
+        Endpoint: !Ref EmailAddress
+        Protocol: email
+
+  GuardDutySNSTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      PolicyDocument:
+        Id: ID-GD-Lab
+        Version: '2012-10-17'
+        Statement:
+        - Sid: SID-GD-Lab
+          Effect: Allow
+          Principal:
+            Service: events.amazonaws.com
+          Action: sns:Publish
+          Resource: '*'
+      Topics: 
+      - !Ref GuardDutySNSTopic
+      
+  InspectorResourceGroup:
+    Type: AWS::Inspector::ResourceGroup
+    Properties: 
+      ResourceGroupTags: 
+        - Key: Name
+          Value:  !Ref ec2tag
+
+  InspectorAssessmentTarget:
+    Type: AWS::Inspector::AssessmentTarget
+    Properties: 
+      ResourceGroupArn: !Ref InspectorResourceGroup
+
+  InspectorAssessmentTemplate:
+    Type: AWS::Inspector::AssessmentTemplate
+    Properties: 
+      AssessmentTargetArn: !Ref InspectorAssessmentTarget
+      DurationInSeconds: !Ref ScanLength
+      RulesPackageArns: 
+        - !FindInMap [RegionMap, !Ref "AWS::Region", CommonVul]
+        - !FindInMap [RegionMap, !Ref "AWS::Region", CIS]
+        - !FindInMap [RegionMap, !Ref "AWS::Region", SecurityBest]
+      UserAttributesForFindings: 
+        - Key: Name
+          Value: !Ref ec2tag
+        - Key: StackName
+          Value: !Ref "AWS::StackName"
+        - Key: CommitId
+          Value: !Ref CommitId
+        - Key: AMI_ID
+          Value: !Ref AMI
+
+Outputs:
+  ResourceGroup:
+    Description: Inspector Resource Group
+    Value: !GetAtt InspectorResourceGroup.Arn
+  AssessmentTarget:
+    Description: Inspector Assessment Target
+    Value: !GetAtt InspectorAssessmentTarget.Arn
+  AssessmentTemplate:
+    Description: Inspector Assessment Template
+    Value: !GetAtt InspectorAssessmentTemplate.Arn
+  CommitId:
+    Description: Commit Id
+    Value: !Ref CommitId
